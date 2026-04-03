@@ -4,24 +4,42 @@
 
 @import url("https://fonts.googleapis.com/css2?family=VT323&family=Space+Mono:wght@400;700&display=swap");
 
+/* Force pixel-perfect rendering for the voxel aesthetic */
+* {
+  image-rendering: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
 body {
-  background: #0a0a0a;
+  background: #050507;
   color: #e0e0e0;
 }
 
-/* Audio player styling overrides */
-audio::-webkit-media-controls-panel {
-  background: #1c1c1c;
+/* CRT scanline animation for machine displays */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
 }
 
-/* Custom scrollbar for dark theme */
+/* Neon pulse for interactive elements */
+@keyframes neon-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+/* Custom scrollbar — dark theme, minimal */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: #0a0a0a;
+  background: #050507;
 }
 ::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 3px;
+  background: #222;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(6, 182, 212, 0.3);
+  color: #fff;
 }

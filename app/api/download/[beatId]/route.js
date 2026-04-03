@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
-import { getAdminDb, getAdminStorage } from "@/lib/firebase-admin";
+import { getAdminDb } from "@/lib/firebase-admin";
 
-// Tell Next.js this route is always dynamic — never try to
-// pre-render it at build time (which would trigger Firebase init)
 export const dynamic = "force-dynamic";
+
+// This endpoint is called by the success page after payment verification.
+// Instead of generating a signed URL (which requires the Admin SDK's
+// private key to work perfectly), we just return the public download URL
+// that Firebase Storage generated when the admin uploaded the file.
+// This URL is already stored in Firestore as `audioUrl`.
+//
+// This is simpler and more reliable. The audioUrl from Firebase Storage
+// already includes an access token parameter that makes it work.
 
 export async function GET(req, { params }) {
   const { beatId } = await params;
@@ -14,31 +21,30 @@ export async function GET(req, { params }) {
 
   try {
     const adminDb = getAdminDb();
-    const adminStorage = getAdminStorage();
-
     const beatDoc = await adminDb.collection("beats").doc(beatId).get();
+
     if (!beatDoc.exists) {
       return NextResponse.json({ error: "Beat not found" }, { status: 404 });
     }
 
     const beat = beatDoc.data();
-    const bucket = adminStorage.bucket();
-    const file = bucket.file(beat.audioPath);
 
-    const [downloadUrl] = await file.getSignedUrl({
-      action: "read",
-      expires: Date.now() + 60 * 60 * 1000, // 1 hour
-    });
+    if (!beat.audioUrl) {
+      return NextResponse.json(
+        { error: "No audio file for this beat" },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({
-      downloadUrl,
+      downloadUrl: beat.audioUrl,
       title: beat.title,
       fileName: `${beat.title}.wav`,
     });
   } catch (err) {
-    console.error("Download URL generation failed:", err);
+    console.error("Download lookup failed:", err);
     return NextResponse.json(
-      { error: "Failed to generate download" },
+      { error: "Failed to get download" },
       { status: 500 }
     );
   }

@@ -2,6 +2,8 @@
 
 import { useCheckoutSuccess } from "@moneydevkit/nextjs";
 import { Suspense, useState, useEffect } from "react";
+import { db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 function SuccessContent() {
   // useCheckoutSuccess() cryptographically verifies with MoneyDevKit
@@ -9,23 +11,48 @@ function SuccessContent() {
   // just navigating to /checkout/success to get a free download.
   const { isCheckoutPaidLoading, isCheckoutPaid, metadata } =
     useCheckoutSuccess();
+
   const [downloadData, setDownloadData] = useState(null);
   const [downloadError, setDownloadError] = useState(null);
 
-  // Once payment is verified, fetch the signed download URL
-  // from our API route. This generates a temporary link to the
-  // actual .wav file in Firebase Cloud Storage.
+  // Once payment is verified, fetch the beat's download URL
+  // directly from Firestore using the client SDK.
+  // This is simpler and more reliable than going through a
+  // server-side API route that needs the Firebase Admin SDK.
+  // The audioUrl stored in Firestore is already a public
+  // Firebase Storage download URL with an access token.
   useEffect(() => {
-    if (isCheckoutPaid && metadata?.beatId) {
-      fetch(`/api/download/${metadata.beatId}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.error) setDownloadError(data.error);
-          else setDownloadData(data);
-        })
-        .catch(() => setDownloadError("Failed to generate download link"));
+    async function fetchDownload() {
+      if (!isCheckoutPaid || !metadata?.beatId) return;
+
+      try {
+        const beatDoc = await getDoc(doc(db, "beats", metadata.beatId));
+
+        if (!beatDoc.exists()) {
+          setDownloadError("Beat not found");
+          return;
+        }
+
+        const beat = beatDoc.data();
+
+        if (!beat.audioUrl) {
+          setDownloadError("No audio file available");
+          return;
+        }
+
+        setDownloadData({
+          downloadUrl: beat.audioUrl,
+          title: beat.title || metadata.beatTitle || "Beat",
+          fileName: `${beat.title || metadata.beatTitle || "Beat"}.wav`,
+        });
+      } catch (err) {
+        console.error("Failed to fetch download:", err);
+        setDownloadError("Failed to load download. Try refreshing the page.");
+      }
     }
-  }, [isCheckoutPaid, metadata?.beatId]);
+
+    fetchDownload();
+  }, [isCheckoutPaid, metadata?.beatId, metadata?.beatTitle]);
 
   // ─── Loading: verifying payment with MDK ───
   if (isCheckoutPaidLoading || isCheckoutPaid === null) {
@@ -89,7 +116,7 @@ function SuccessContent() {
             YOUR DOWNLOAD
           </p>
           <p className="text-brand-gold text-xl tracking-widest mb-1 font-display">
-            {metadata?.beatTitle || "Beat"}
+            {downloadData?.title || metadata?.beatTitle || "Beat"}
           </p>
           <p className="text-brand-muted text-sm">.wav format</p>
 
@@ -97,6 +124,8 @@ function SuccessContent() {
             <a
               href={downloadData.downloadUrl}
               download={downloadData.fileName}
+              target="_blank"
+              rel="noopener noreferrer"
               className="block mt-4 bg-brand-green text-brand-dark text-center font-display text-lg py-3 rounded-lg tracking-widest hover:brightness-110 transition-all"
             >
               ⬇ DOWNLOAD
@@ -105,7 +134,7 @@ function SuccessContent() {
             <p className="text-red-400 text-sm mt-4">{downloadError}</p>
           ) : (
             <div className="mt-4 text-brand-muted text-sm animate-blink">
-              Generating download link...
+              Preparing download...
             </div>
           )}
         </div>

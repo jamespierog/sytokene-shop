@@ -14,18 +14,15 @@ import {
 export default function ShopPage() {
   const { createCheckout, isLoading: checkoutLoading } = useCheckout();
 
-  // ─── State ───
   const [beats, setBeats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedBeat, setSelectedBeat] = useState(null);
-  const [email, setEmail] = useState("");
-  const [step, setStep] = useState("browse"); // browse | preview | email | processing
+  const [step, setStep] = useState("browse"); // browse | preview | processing
   const [error, setError] = useState(null);
   const [playingId, setPlayingId] = useState(null);
   const audioRef = useRef(null);
 
-  // ─── Load beats from Firestore on mount ───
-  // Only fetches beats marked as active (published by admin)
+  // Load beats from Firestore
   useEffect(() => {
     async function loadBeats() {
       try {
@@ -49,15 +46,13 @@ export default function ShopPage() {
     loadBeats();
   }, []);
 
-  // ─── Audio preview playback ───
+  // Audio preview playback
   function togglePlay(beat) {
-    // If already playing this beat, pause it
     if (playingId === beat.id) {
       audioRef.current?.pause();
       setPlayingId(null);
       return;
     }
-    // Play the preview URL (or the full audio URL if no preview)
     if (audioRef.current) {
       audioRef.current.src = beat.previewUrl || beat.audioUrl;
       audioRef.current.play();
@@ -65,29 +60,17 @@ export default function ShopPage() {
     }
   }
 
-  // ─── Format price for display ───
   function formatPrice(beat) {
     if (beat.currency === "SAT") return `${beat.price} sats`;
-    // Price stored in cents for USD
     return `$${(beat.price / 100).toFixed(beat.price % 100 === 0 ? 0 : 2)}`;
   }
 
-  // ─── Checkout flow ───
+  // Go straight to Lightning checkout — no email, no personal data
   async function handleCheckout() {
-    if (!email || !email.includes("@")) {
-      setError("Enter a valid email address");
-      return;
-    }
-
     setStep("processing");
     setError(null);
 
     try {
-      // createCheckout() calls MoneyDevKit's API to generate a
-      // Lightning invoice. We use type: 'AMOUNT' since our products
-      // are managed in Firebase, not the MDK dashboard.
-      // (You COULD also create products in MDK dashboard and use
-      // type: 'PRODUCTS' — both approaches work.)
       const result = await createCheckout({
         type: "AMOUNT",
         title: selectedBeat.title,
@@ -95,55 +78,44 @@ export default function ShopPage() {
         amount: selectedBeat.price,
         currency: selectedBeat.currency || "USD",
         successUrl: "/checkout/success",
-        // Collect email during MDK checkout as backup
-        requireCustomerData: ["email"],
-        customer: {
-          email: email,
-        },
-        // metadata is passed through to the success page and webhook
-        // so we know which beat to deliver
+        // Pass the beatId through metadata so the success page
+        // knows which file to deliver after payment
         metadata: {
           beatId: selectedBeat.id,
           beatTitle: selectedBeat.title,
-          email: email,
         },
       });
 
       if (result.error) {
         setError(result.error.message);
-        setStep("email");
+        setStep("preview");
         return;
       }
 
-      // Redirect to MDK's hosted checkout page where the buyer
-      // sees the Lightning invoice QR code
+      // Redirect to MDK hosted checkout with the Lightning invoice
       window.location.href = result.data.checkoutUrl;
     } catch (err) {
       console.error("Checkout error:", err);
       setError("Something went wrong. Try again.");
-      setStep("email");
+      setStep("preview");
     }
   }
 
-  // ─── Close modal and reset state ───
   function handleClose() {
     setSelectedBeat(null);
     setStep("browse");
-    setEmail("");
     setError(null);
   }
 
-  // ─── Render ───
   return (
     <div className="min-h-screen bg-brand-dark">
-      {/* Hidden audio element for previews */}
       <audio
         ref={audioRef}
         onEnded={() => setPlayingId(null)}
         preload="none"
       />
 
-      {/* ─── Header ─── */}
+      {/* Header */}
       <header className="border-b border-brand-border">
         <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
           <div>
@@ -163,7 +135,7 @@ export default function ShopPage() {
         </div>
       </header>
 
-      {/* ─── Beat Grid ─── */}
+      {/* Beat Grid */}
       <main className="max-w-4xl mx-auto px-4 py-8">
         {loading ? (
           <div className="text-center py-20">
@@ -179,10 +151,7 @@ export default function ShopPage() {
             <p className="text-brand-muted text-sm">
               The producer hasn&apos;t uploaded any beats yet.
               <br />
-              <a
-                href="/admin"
-                className="text-brand-gold hover:underline"
-              >
+              <a href="/admin" className="text-brand-gold hover:underline">
                 Go to admin
               </a>{" "}
               to add some.
@@ -212,8 +181,6 @@ export default function ShopPage() {
                       <span className="text-6xl opacity-20">🎵</span>
                     </div>
                   )}
-
-                  {/* Play button overlay */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -225,16 +192,12 @@ export default function ShopPage() {
                       {playingId === beat.id ? "⏸" : "▶"}
                     </span>
                   </button>
-
-                  {/* Tags */}
                   {beat.tag && (
                     <span className="absolute top-3 left-3 bg-brand-gold text-brand-dark text-xs font-display px-2 py-0.5 rounded tracking-wider">
                       {beat.tag}
                     </span>
                   )}
                 </div>
-
-                {/* Info */}
                 <div className="p-4">
                   <h3 className="font-display text-lg text-white tracking-widest truncate">
                     {beat.title}
@@ -255,16 +218,16 @@ export default function ShopPage() {
         )}
       </main>
 
-      {/* ─── Footer ─── */}
+      {/* Footer */}
       <footer className="border-t border-brand-border mt-12">
         <div className="max-w-4xl mx-auto px-4 py-6 text-center">
           <p className="text-brand-muted text-xs tracking-widest">
-            POWERED BY BITCOIN LIGHTNING ⚡ MONEYDEVKIT
+            POWERED BY BITCOIN LIGHTNING ⚡ NO ACCOUNTS. NO DATA COLLECTED.
           </p>
         </div>
       </footer>
 
-      {/* ─── Modal Overlay ─── */}
+      {/* Modal */}
       {selectedBeat && step !== "browse" && (
         <div
           className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
@@ -273,10 +236,9 @@ export default function ShopPage() {
           }}
         >
           <div className="bg-brand-panel border border-brand-border rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            {/* ─── Preview Step ─── */}
+            {/* Preview */}
             {step === "preview" && (
               <div>
-                {/* Cover */}
                 <div className="aspect-video bg-brand-dark relative overflow-hidden rounded-t-xl">
                   {selectedBeat.imageUrl ? (
                     <img
@@ -307,7 +269,7 @@ export default function ShopPage() {
                     </p>
                   )}
 
-                  {/* Audio preview player */}
+                  {/* Audio preview */}
                   <div className="mt-4 bg-brand-dark rounded-lg p-3 flex items-center gap-3">
                     <button
                       onClick={() => togglePlay(selectedBeat)}
@@ -320,16 +282,25 @@ export default function ShopPage() {
                         {selectedBeat.title}
                       </p>
                       <p className="text-brand-muted text-xs">
-                        Click to {playingId === selectedBeat.id ? "pause" : "preview"}
+                        Click to{" "}
+                        {playingId === selectedBeat.id ? "pause" : "preview"}
                       </p>
                     </div>
                   </div>
 
+                  {error && (
+                    <p className="text-red-400 text-xs mt-3">{error}</p>
+                  )}
+
+                  {/* Buy button — goes straight to Lightning checkout */}
                   <button
-                    onClick={() => setStep("email")}
-                    className="w-full mt-5 bg-brand-red text-white font-display text-lg py-3.5 rounded-lg tracking-[3px] hover:bg-red-600 transition-colors"
+                    onClick={handleCheckout}
+                    disabled={checkoutLoading}
+                    className="w-full mt-5 bg-brand-red text-white font-display text-lg py-3.5 rounded-lg tracking-[3px] hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    ⚡ BUY FOR {formatPrice(selectedBeat)}
+                    {checkoutLoading
+                      ? "CREATING INVOICE..."
+                      : `⚡ BUY FOR ${formatPrice(selectedBeat)}`}
                   </button>
                   <button
                     onClick={handleClose}
@@ -341,54 +312,7 @@ export default function ShopPage() {
               </div>
             )}
 
-            {/* ─── Email Step ─── */}
-            {step === "email" && (
-              <div className="p-5">
-                <h2 className="font-display text-xl text-brand-gold tracking-[2px]">
-                  ⚡ CHECKOUT
-                </h2>
-                <p className="text-brand-muted text-xs mt-1 mb-5 tracking-wider">
-                  {selectedBeat.title} · {formatPrice(selectedBeat)}
-                </p>
-
-                <label className="text-gray-400 text-xs block mb-1">
-                  Enter your email to receive the download:
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setError(null);
-                  }}
-                  onKeyDown={(e) => e.key === "Enter" && handleCheckout()}
-                  placeholder="your@email.com"
-                  className="w-full bg-brand-dark border border-brand-border rounded-lg py-3 px-4 text-brand-green font-mono placeholder-gray-600 focus:outline-none focus:border-brand-gold transition-colors"
-                  autoFocus
-                />
-                {error && (
-                  <p className="text-red-400 text-xs mt-2">{error}</p>
-                )}
-
-                <button
-                  onClick={handleCheckout}
-                  disabled={checkoutLoading}
-                  className="w-full mt-4 bg-brand-red text-white font-display text-lg py-3.5 rounded-lg tracking-[3px] hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {checkoutLoading
-                    ? "CREATING INVOICE..."
-                    : "⚡ PAY WITH LIGHTNING"}
-                </button>
-                <button
-                  onClick={handleClose}
-                  className="w-full mt-2 border border-brand-border text-brand-muted font-display text-sm py-2.5 rounded-lg tracking-[2px] hover:text-gray-400 hover:border-gray-600 transition-colors"
-                >
-                  CANCEL
-                </button>
-              </div>
-            )}
-
-            {/* ─── Processing Step ─── */}
+            {/* Processing */}
             {step === "processing" && (
               <div className="p-5 text-center py-12">
                 <div className="text-4xl mb-4 animate-blink">⚡</div>

@@ -13,6 +13,9 @@ function SuccessContent() {
   const [fetchError, setFetchError] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
+  // If the blob approach fails (e.g., CORS not configured yet),
+  // fall back to showing a direct download link
+  const [useFallback, setUseFallback] = useState(false);
 
   // Fetch beat data from Firestore once payment is verified
   useEffect(() => {
@@ -33,6 +36,7 @@ function SuccessContent() {
           return;
         }
 
+        // Figure out the file extension from the storage path
         const ext = (beat.audioPath || "file.wav").split(".").pop() || "wav";
         const safeTitle = (beat.title || metadata.beatTitle || "Beat")
           .replace(/[^a-zA-Z0-9_\-\s]/g, "")
@@ -52,22 +56,19 @@ function SuccessContent() {
     fetchBeat();
   }, [isCheckoutPaid, metadata?.beatId, metadata?.beatTitle]);
 
-  // Download via the proxy route (same domain = no CORS)
-  const handleDownload = useCallback(async () => {
+  // Download the file by fetching it as a blob and triggering
+  // a programmatic download. This hides the Firebase Storage URL
+  // from the user — they just see a file appear in their Downloads.
+  const handleBlobDownload = useCallback(async () => {
     if (!beatData?.audioUrl) return;
 
     setDownloading(true);
 
     try {
-      const proxyUrl =
-        `/api/proxy-download?` +
-        `url=${encodeURIComponent(beatData.audioUrl)}` +
-        `&name=${encodeURIComponent(beatData.fileName)}`;
-
-      const response = await fetch(proxyUrl);
+      const response = await fetch(beatData.audioUrl);
 
       if (!response.ok) {
-        throw new Error(`Download failed: ${response.status}`);
+        throw new Error(`HTTP ${response.status}`);
       }
 
       const blob = await response.blob();
@@ -80,23 +81,26 @@ function SuccessContent() {
       link.click();
       document.body.removeChild(link);
 
+      // Free the blob memory after a short delay
+      // (some browsers need the URL to persist briefly for the download)
       setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
 
       setDownloaded(true);
     } catch (err) {
-      console.error("Download error:", err);
-      setFetchError("Download failed. Try again.");
+      console.error("Blob download failed (likely CORS):", err);
+      // Fall back to direct link approach
+      setUseFallback(true);
     } finally {
       setDownloading(false);
     }
   }, [beatData]);
 
-  // Auto-start download
+  // Auto-start download once beat data is available
   useEffect(() => {
-    if (beatData && !downloaded && !downloading && !fetchError) {
-      handleDownload();
+    if (beatData && !downloaded && !downloading && !useFallback) {
+      handleBlobDownload();
     }
-  }, [beatData, downloaded, downloading, fetchError, handleDownload]);
+  }, [beatData, downloaded, downloading, useFallback, handleBlobDownload]);
 
   // ─── Loading ───
   if (isCheckoutPaidLoading || isCheckoutPaid === null) {
@@ -135,7 +139,7 @@ function SuccessContent() {
     );
   }
 
-  // ─── Paid ───
+  // ─── Paid — show download ───
   return (
     <div className="min-h-screen bg-brand-dark flex items-center justify-center p-4">
       <div className="text-center max-w-md w-full">
@@ -143,9 +147,15 @@ function SuccessContent() {
           <span className="text-brand-green text-4xl font-display">✓</span>
         </div>
 
-        <h1 className="font-display text-2xl text-brand-green tracking-[0.2em] mb-6">
+        <h1 className="font-display text-2xl text-brand-green tracking-[0.2em] mb-2">
           PAYMENT CONFIRMED
         </h1>
+
+        {metadata?.email && (
+          <p className="text-brand-muted text-sm mb-6">
+            The file will also be sent to {metadata.email}
+          </p>
+        )}
 
         <div className="bg-brand-surface rounded-xl p-6 mb-6 text-left border border-brand-border">
           <p className="text-brand-muted text-xs tracking-widest mb-2 font-display">
@@ -159,21 +169,7 @@ function SuccessContent() {
           </p>
 
           {fetchError ? (
-            <div>
-              <p className="text-red-400 text-sm mt-4">{fetchError}</p>
-              {beatData && (
-                <button
-                  onClick={() => {
-                    setFetchError(null);
-                    setDownloaded(false);
-                    handleDownload();
-                  }}
-                  className="block w-full mt-3 bg-brand-red text-white text-center font-display text-sm py-2.5 rounded-lg tracking-widest hover:bg-red-600 transition-colors"
-                >
-                  TRY AGAIN
-                </button>
-              )}
-            </div>
+            <p className="text-red-400 text-sm mt-4">{fetchError}</p>
           ) : downloading ? (
             <div className="mt-4 bg-brand-dark rounded-lg p-4 text-center">
               <div className="text-brand-gold animate-blink text-lg mb-1">
@@ -189,14 +185,29 @@ function SuccessContent() {
                 </p>
               </div>
               <button
-                onClick={() => {
-                  setDownloaded(false);
-                  handleDownload();
-                }}
+                onClick={handleBlobDownload}
                 className="block w-full mt-3 bg-brand-surface border border-brand-border text-brand-muted text-center font-display text-sm py-2.5 rounded-lg tracking-widest hover:text-white hover:border-gray-500 transition-colors"
               >
                 ⬇ DOWNLOAD AGAIN
               </button>
+            </div>
+          ) : useFallback && beatData ? (
+            // Fallback: if blob download failed (CORS not configured),
+            // show a direct download button. This opens the file URL
+            // directly, which always works but shows the Firebase URL.
+            <div>
+              <p className="text-brand-muted text-xs mt-3 mb-3">
+                Click to download your file:
+              </p>
+              <a
+                href={beatData.audioUrl}
+                download={beatData.fileName}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full bg-brand-green text-brand-dark text-center font-display text-lg py-3 rounded-lg tracking-widest hover:brightness-110 transition-all"
+              >
+                ⬇ DOWNLOAD
+              </a>
             </div>
           ) : (
             <div className="mt-4 text-brand-muted text-sm animate-blink">

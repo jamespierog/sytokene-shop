@@ -299,46 +299,6 @@ The project starts in "test mode" which allows anyone to read AND write. Before 
 
 Go to Firebase Console → Firestore → **Rules** tab, and paste:
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Anyone can read beats (the storefront needs this)
-    // Only logged-in users can create/edit/delete
-    match /beats/{beatId} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
-
-    // Sales records are written by the server (admin SDK) only
-    // Nobody can read or write from the client
-    match /sales/{saleId} {
-      allow read, write: if false;
-    }
-  }
-}
-```
-
-Click **Publish**.
-
-#### Storage Rules
-
-Go to Firebase Console → Storage → **Rules** tab, and paste:
-
-```
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /beats/{allPaths=**} {
-      // Anyone can read (for audio previews + cover images)
-      allow read: if true;
-      // Only logged-in users can upload/delete
-      allow write: if request.auth != null;
-    }
-  }
-}
-```
-
 Click **Publish**.
 
 ---

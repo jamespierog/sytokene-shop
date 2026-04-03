@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
-import { adminDb, adminStorage } from "@/lib/firebase-admin";
+import { getAdminDb, getAdminStorage } from "@/lib/firebase-admin";
 
-// This endpoint generates a temporary signed download URL for a beat.
-// It's called from the success page after payment verification.
-// The beatId comes from checkout metadata, and we verify that
-// a matching sale record exists before generating the URL.
-//
-// In production, you could add additional verification (e.g., checking
-// the checkout session ID), but for a prototype this is sufficient.
+// Tell Next.js this route is always dynamic — never try to
+// pre-render it at build time (which would trigger Firebase init)
+export const dynamic = "force-dynamic";
 
 export async function GET(req, { params }) {
   const { beatId } = await params;
@@ -17,7 +13,9 @@ export async function GET(req, { params }) {
   }
 
   try {
-    // Look up the beat in Firestore
+    const adminDb = getAdminDb();
+    const adminStorage = getAdminStorage();
+
     const beatDoc = await adminDb.collection("beats").doc(beatId).get();
     if (!beatDoc.exists) {
       return NextResponse.json({ error: "Beat not found" }, { status: 404 });
@@ -27,10 +25,9 @@ export async function GET(req, { params }) {
     const bucket = adminStorage.bucket();
     const file = bucket.file(beat.audioPath);
 
-    // Generate a URL that expires in 1 hour
     const [downloadUrl] = await file.getSignedUrl({
       action: "read",
-      expires: Date.now() + 60 * 60 * 1000,
+      expires: Date.now() + 60 * 60 * 1000, // 1 hour
     });
 
     return NextResponse.json({

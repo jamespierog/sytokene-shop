@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { Webhook } from "standardwebhooks";
-import { adminDb, adminStorage } from "@/lib/firebase-admin";
+import { getAdminDb, getAdminStorage } from "@/lib/firebase-admin";
+
+// Never pre-render this route at build time
+export const dynamic = "force-dynamic";
 
 const secret = process.env.MDK_WEBHOOK_SECRET;
 
 export async function POST(req) {
-  // ─── 1. Verify the webhook signature ───
-  // This ensures the request actually came from MoneyDevKit,
-  // not someone trying to fake a payment confirmation.
   const body = await req.text();
   const headers = {
     "webhook-id": req.headers.get("webhook-id") ?? "",
@@ -15,6 +15,7 @@ export async function POST(req) {
     "webhook-signature": req.headers.get("webhook-signature") ?? "",
   };
 
+  // Verify webhook signature
   const wh = new Webhook(secret);
   let payload;
   try {
@@ -26,7 +27,6 @@ export async function POST(req) {
 
   const { type, data } = payload;
 
-  // ─── 2. Handle the checkout.completed event ───
   if (type === "checkout.completed") {
     const email = data.customer?.email || data.metadata?.email;
     const beatId = data.metadata?.beatId;
@@ -37,29 +37,24 @@ export async function POST(req) {
     console.log("Beat:", beatTitle, "(", beatId, ")");
     console.log("Amount:", data.amountSats, "sats");
 
-    // ─── 3. Generate a signed download URL ───
-    // This URL expires after 24 hours so the buyer can't share
-    // a permanent link. They can always re-purchase if needed.
     if (beatId && email) {
       try {
-        // Look up the beat in Firestore to get the storage path
+        const adminDb = getAdminDb();
+        const adminStorage = getAdminStorage();
+
         const beatDoc = await adminDb.collection("beats").doc(beatId).get();
         if (beatDoc.exists) {
           const beat = beatDoc.data();
           const bucket = adminStorage.bucket();
-
-          // The audio file path in Cloud Storage
-          // (set when the admin uploads the beat)
-          const audioPath = beat.audioPath; // e.g., "beats/abc123/beat.wav"
+          const audioPath = beat.audioPath;
           const file = bucket.file(audioPath);
 
-          // Generate a URL that expires in 24 hours
           const [downloadUrl] = await file.getSignedUrl({
             action: "read",
             expires: Date.now() + 24 * 60 * 60 * 1000,
           });
 
-          // ─── 4. Send the download email ───
+          // Send download email if SMTP is configured
           if (process.env.SMTP_HOST) {
             await sendDownloadEmail(email, beatTitle, downloadUrl);
             console.log("Download email sent to:", email);
@@ -67,7 +62,7 @@ export async function POST(req) {
             console.log("SMTP not configured — download URL:", downloadUrl);
           }
 
-          // Record the sale in Firestore for tracking
+          // Record sale in Firestore
           await adminDb.collection("sales").add({
             beatId,
             beatTitle,
@@ -79,17 +74,13 @@ export async function POST(req) {
         }
       } catch (err) {
         console.error("Error processing download:", err);
-        // Don't return an error — still acknowledge the webhook
-        // so MoneyDevKit doesn't retry. Log it and fix manually.
       }
     }
   }
 
-  // Always respond 200 quickly so MDK doesn't retry
   return NextResponse.json({ received: true });
 }
 
-// ─── Email delivery function ───
 async function sendDownloadEmail(email, beatTitle, downloadUrl) {
   const nodemailer = require("nodemailer");
 
@@ -115,14 +106,14 @@ async function sendDownloadEmail(email, beatTitle, downloadUrl) {
           <p style="color: #f39c12; font-size: 18px; margin: 0 0 4px;">${beatTitle}</p>
           <p style="color: #666; font-size: 12px; margin: 0;">.wav format</p>
         </div>
-        <a href="${downloadUrl}" 
-           style="display: block; background: #c0392b; color: white; text-align: center; 
+        <a href="${downloadUrl}"
+           style="display: block; background: #c0392b; color: white; text-align: center;
                   padding: 14px; border-radius: 8px; text-decoration: none; font-size: 16px;
                   letter-spacing: 2px;">
           DOWNLOAD
         </a>
         <p style="color: #444; font-size: 11px; margin-top: 20px;">
-          This link expires in 24 hours. Contact us if you need a new one.
+          This link expires in 24 hours.
         </p>
       </div>
     `,
